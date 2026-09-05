@@ -1,4 +1,4 @@
-# Multi-stage / lean production image for Content Resolver service
+# Production image for Content Resolver service
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -9,7 +9,8 @@ ENV PYTHONUNBUFFERED=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -u 10001 -m -s /bin/sh appuser
 
 WORKDIR /app
 
@@ -20,6 +21,9 @@ RUN pip install --no-cache-dir -r requirements-resolver.txt
 # Copy source code and capability declaration
 COPY capabilities.yaml .
 COPY src/ ./src/
+
+RUN chown -R appuser:appuser /app
+USER 10001:10001
 
 # Health check using the unauthenticated /healthz endpoint
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
