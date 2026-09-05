@@ -108,7 +108,7 @@ class WeixinAdapter(BaseAdapter):
         if description and description.strip():
             title = description.strip().split("\n")[0][:80]
         else:
-            title = f"微信视频号_{short_uri}"
+            title = None
 
         # Parse create time
         createtime = feed_info.get("createtime")

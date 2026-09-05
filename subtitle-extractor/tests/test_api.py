@@ -118,7 +118,7 @@ class TestTwoCapabilities(unittest.TestCase):
         with patch("src.adapters.weixin.WeixinAdapter.resolve_metadata", return_value=fake_meta), \
              patch("src.adapters.weixin.WeixinAdapter.try_get_native_transcript", return_value=None), \
              patch("src.media.weixin.WeixinMediaProvider.acquire", return_value="/tmp/mock_media.mp4"), \
-             patch("src.pipeline.transcribe_media_file", return_value="语音识别转录文本") as mock_transcribe, \
+             patch("src.asr.transcribe_media_file", return_value="语音识别转录文本") as mock_transcribe, \
              patch("os.path.exists", return_value=True), \
              patch("os.remove"):
 

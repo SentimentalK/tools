@@ -1,0 +1,4 @@
+sherpa-onnx==1.13.7
+numpy>=1.24.0
+cryptography>=42.0.0
+secretstorage>=3.3.3

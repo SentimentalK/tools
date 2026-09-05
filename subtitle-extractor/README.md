@@ -177,9 +177,82 @@ platform_metadata:
 
 ---
 
-## 5. 测试套件
+## 5. HTTP Resolver 微服务 (`content.resolve_url`)
 
-运行完整离线测试套件：
+作为 CEO 平台的提供商端内部微服务，`src/service.py` 基于 FastAPI 提供轻量、只读、确定性的 URL 元数据解析服务。
+
+### 接口规范
+
+| 端点 | 方法 | 鉴权要求 | 说明 | 预期响应码 |
+|---|---|---|---|---|
+| `/healthz` | `GET` | 无鉴权 (公开) | 进程存活检查 (Liveness Probe) | `200 {"status": "ok"}` |
+| `/readyz` | `GET` | 无鉴权 (集群内) | **闭环就绪检查 (Readiness Probe)**：强制校验 `TOOLS_INTERNAL_TOKEN` | 正常 `200`；未配置密钥返回 `503` |
+| `/v1/resolve` | `POST` | `Authorization: Bearer <TOKEN>` | 同步解析 URL 元数据并返回 V1 合约 | 成功 `200`；鉴权失败 `401`；链接非法 `400`；上游解析失败 `502` |
+
+### HTTP 状态码语义与错误结构
+- **`400 Bad Request`**：请求结构错误（如 `schema_version` 不支持或 `url` 为空）或平台不支持（`unsupported_url`）。
+- **`401 Unauthorized`**：缺少 `Authorization` 请求头或 Bearer 密钥与 `TOOLS_INTERNAL_TOKEN` 不匹配。
+- **`502 Bad Gateway`**：上游平台（微信预览 API / yt-dlp）网络或数据解析失败（`resolve_failed`）。绝不返回虚构占位元数据。
+- **`503 Service Unavailable`**：服务未完成初始化配置（如未设置 `TOOLS_INTERNAL_TOKEN`），禁止 Kubernetes 路由流量。
+- **`500 Internal Server Error`**：服务未预期内部异常。
+
+错误响应均采用标准化结构：
+```json
+{
+  "error": {
+    "code": "resolve_failed",
+    "message": "WeChat Channels API request failed: ..."
+  }
+}
+```
+
+### V1 响应报文规范 (`ContentMetadataV1`)
+未知或不可用字段严格为标准 JSON `null`，严禁虚构回退标题：
+```json
+{
+  "schema_version": 1,
+  "source_type": "weixin",
+  "source_url": "https://weixin.qq.com/sph/AF17JEGHVd",
+  "canonical_url": "https://weixin.qq.com/sph/AF17JEGHVd",
+  "source_id": "AF17JEGHVd",
+  "title": "鹦鹉:我也要这样婶儿的#看一遍笑一遍#萌宠#搞笑#抽象#万万没想到",
+  "description": "鹦鹉:我也要这样婶儿的#看一遍笑一遍#萌宠#搞笑#抽象#万万没想到",
+  "creator": "玩娱少女",
+  "published_at": "2026-09-05",
+  "duration_seconds": null,
+  "language": null,
+  "thumbnail_url": "https://finder.video.qq.com/...",
+  "media_url": null,
+  "view_count": null,
+  "like_count": "9665",
+  "comment_count": "778",
+  "captured_at": "2026-09-05T19:16:57.206093-04:00",
+  "platform_metadata": {
+    "fav_count": "1.5万",
+    "forward_count": "2.0万"
+  }
+}
+```
+
+### 本地启动与容器部署
+
+```bash
+# 本地启动
+export TOOLS_INTERNAL_TOKEN="your-token"
+.venv/bin/uvicorn src.service:app --host 0.0.0.0 --port 8000
+
+# Docker 构建 (轻量纯解析镜像，无 ASR 模型)
+docker build -t content-resolver:latest -f Dockerfile .
+
+# K3s 部署
+kubectl apply -f deploy/k8s-resolver.yaml
+```
+
+---
+
+## 6. 测试套件
+
+运行完整离线测试套件（覆盖隔离边界、Typed Errors、FastAPI 鉴权与 HTTP 状态码、ASR 与 Media Provider）：
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -p "test_*.py"

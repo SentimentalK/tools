@@ -7,6 +7,7 @@ Public API:
 """
 
 from .api import extract_url, resolve_url
+from .contracts import ContentMetadataV1, ResolveUrlInputV1
 from .models import ContentMetadata, ResolveError, ResolvedContent, UnsupportedURLError
 
 __all__ = [
@@ -16,4 +17,6 @@ __all__ = [
     "ResolvedContent",
     "ResolveError",
     "UnsupportedURLError",
+    "ResolveUrlInputV1",
+    "ContentMetadataV1",
 ]

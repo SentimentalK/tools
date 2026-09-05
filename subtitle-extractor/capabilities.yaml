@@ -1,0 +1,17 @@
+schema_version: 1
+tool: subtitle-extractor
+
+capabilities:
+  content.resolve_url:
+    mode: sync
+    execution: service
+    input: ResolveUrlInputV1
+    output: ContentMetadataV1
+    description: "Lightweight, read-only metadata resolution for supported media URLs without browser cookies, media download, or ASR."
+
+  content.extract_url:
+    mode: async
+    execution: worker
+    input: ExtractUrlInputV1
+    output: ResolvedContentV1
+    description: "Autonomous end-to-end extraction resolving metadata, native subtitles, and FireRedASR2-AED offline speech recognition fallback."

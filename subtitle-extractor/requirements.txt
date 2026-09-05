@@ -1,6 +1,2 @@
-yt-dlp
-httpx
-sherpa-onnx==1.13.7
-numpy
-cryptography
-secretstorage
+-r requirements-resolver.txt
+-r requirements-extractor.txt

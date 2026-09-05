@@ -55,7 +55,7 @@ class TestAdapters(unittest.TestCase):
         self.assertEqual(meta.source_id, "test")
         self.assertIsNone(meta.creator)
         self.assertIsNone(meta.description)
-        self.assertEqual(meta.title, "微信视频号_test")
+        self.assertIsNone(meta.title)
         self.assertEqual(resolved.transcript_status, "unavailable")
 
     def test_weixin_short_uri_extraction(self):

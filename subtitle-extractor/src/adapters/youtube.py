@@ -57,7 +57,7 @@ class YouTubeAdapter(BaseAdapter):
             else:
                 source_id = ""
 
-        title = data.get("title") or "YouTube_Video"
+        title = data.get("title") or None
         creator = data.get("uploader") or data.get("channel") or data.get("uploader_id")
 
         pub_date = data.get("upload_date")

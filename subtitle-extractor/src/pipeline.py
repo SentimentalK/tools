@@ -10,30 +10,14 @@ from typing import Optional, Tuple
 
 try:
     from .adapters import get_adapter_for_url
-    from .asr import download_media_for_asr, transcribe_media_file
     from .markdown import export_markdown, sanitize_filename
-    from .media import (
-        MediaAuthError,
-        MediaDownloadError,
-        MediaProviderError,
-        MediaResolveError,
-        get_media_provider,
-    )
-    from .model_manager import get_tmp_dir
     from .models import ContentMetadata, ResolvedContent
+    from .resolver import resolve_url as _standalone_resolve_url
 except (ImportError, ValueError):
     from adapters import get_adapter_for_url
-    from asr import download_media_for_asr, transcribe_media_file
     from markdown import export_markdown, sanitize_filename
-    from media import (
-        MediaAuthError,
-        MediaDownloadError,
-        MediaProviderError,
-        MediaResolveError,
-        get_media_provider,
-    )
-    from model_manager import get_tmp_dir
     from models import ContentMetadata, ResolvedContent
+    from resolver import resolve_url as _standalone_resolve_url
 
 
 class Pipeline:
@@ -56,8 +40,7 @@ class Pipeline:
         Capability A: Lightweight, read-only metadata resolution.
         Never accesses cookies, downloads media/subtitles, or touches ASR.
         """
-        adapter = get_adapter_for_url(url)
-        return adapter.resolve_metadata(url)
+        return _standalone_resolve_url(url)
 
     def extract_url(self, url: str) -> ResolvedContent:
         """
@@ -65,6 +48,28 @@ class Pipeline:
         Independently resolves URL -> checks native transcript -> acquires media/ASR if needed.
         Never requires a prior resolve_url call.
         """
+        # Lazy import heavy model manager, media providers, and ASR modules
+        try:
+            from .asr import download_media_for_asr, transcribe_media_file
+            from .media import (
+                MediaAuthError,
+                MediaDownloadError,
+                MediaProviderError,
+                MediaResolveError,
+                get_media_provider,
+            )
+            from .model_manager import get_tmp_dir
+        except (ImportError, ValueError):
+            from asr import download_media_for_asr, transcribe_media_file
+            from media import (
+                MediaAuthError,
+                MediaDownloadError,
+                MediaProviderError,
+                MediaResolveError,
+                get_media_provider,
+            )
+            from model_manager import get_tmp_dir
+
         adapter = get_adapter_for_url(url)
         print(f"▶ 识别平台: {adapter.__class__.__name__} ({url})", file=sys.stderr)
 

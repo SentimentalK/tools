@@ -50,8 +50,8 @@ class BilibiliAdapter(BaseAdapter):
             else:
                 source_id = ""
 
-        title = data.get("title") or "Bilibili_Video"
-        creator = data.get("uploader") or data.get("uploader_id")
+        title = data.get("title") or None
+        creator = data.get("uploader") or data.get("creator") or data.get("uploader_id")
 
         pub_date = data.get("upload_date")
         if pub_date and len(pub_date) == 8:

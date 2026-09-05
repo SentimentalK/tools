@@ -1,5 +1,5 @@
 """
-Public Python API for Subtitle Extractor.
+Public Python API for Subtitle Extractor & Content Ingestion Scaffold.
 
 Exposes exactly two capabilities:
 1. resolve_url(url: str) -> ContentMetadata
@@ -13,10 +13,10 @@ from typing import Optional
 
 try:
     from .models import ContentMetadata, ResolveError, ResolvedContent, UnsupportedURLError
-    from .pipeline import Pipeline
+    from .resolver import resolve_url
 except (ImportError, ValueError):
     from models import ContentMetadata, ResolveError, ResolvedContent, UnsupportedURLError
-    from pipeline import Pipeline
+    from resolver import resolve_url
 
 __all__ = [
     "resolve_url",
@@ -26,23 +26,6 @@ __all__ = [
     "ResolveError",
     "UnsupportedURLError",
 ]
-
-
-def resolve_url(url: str) -> ContentMetadata:
-    """
-    Resolve lightweight, read-only metadata for any supported URL.
-
-    - Performs platform detection and public metadata lookup.
-    - Fast and read-only.
-    - Never touches browser cookies, never downloads subtitles or media,
-      never initializes ASR, and never touches .models/ or temporary buffers.
-
-    Raises:
-        UnsupportedURLError: If the URL platform is not supported.
-        ResolveError: If metadata resolution fails.
-    """
-    pipeline = Pipeline()
-    return pipeline.resolve_url(url)
 
 
 def extract_url(
@@ -64,5 +47,10 @@ def extract_url(
         UnsupportedURLError: If the URL platform is not supported.
         ResolveError: If metadata resolution fails.
     """
+    try:
+        from .pipeline import Pipeline
+    except (ImportError, ValueError):
+        from pipeline import Pipeline
+
     pipeline = Pipeline(browser_name=browser_name, profile_name=profile_name)
     return pipeline.extract_url(url)
