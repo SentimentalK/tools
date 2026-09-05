@@ -18,6 +18,7 @@ try:
         MediaResolveError,
         get_media_provider,
     )
+    from .model_manager import get_tmp_dir
     from .models import ResolvedContent
 except (ImportError, ValueError):
     from adapters import get_adapter_for_url
@@ -30,6 +31,7 @@ except (ImportError, ValueError):
         MediaResolveError,
         get_media_provider,
     )
+    from model_manager import get_tmp_dir
     from models import ResolvedContent
 
 
@@ -59,7 +61,7 @@ class Pipeline:
         adapter = get_adapter_for_url(url)
         print(f"▶ 识别平台: {adapter.__class__.__name__} ({url})")
 
-        with tempfile.TemporaryDirectory(prefix="ingest_") as tmp_dir:
+        with tempfile.TemporaryDirectory(prefix="ingest_", dir=str(get_tmp_dir())) as tmp_dir:
             # Step 1: Adapter resolves metadata and native subtitles
             resolved = adapter.resolve(url, tmp_dir=tmp_dir)
 
@@ -99,12 +101,12 @@ class Pipeline:
                 # If media was acquired, run speech recognition
                 if media_file and os.path.exists(media_file):
                     try:
-                        print("▶ 运行 Faster-Whisper ASR 语音识别...")
+                        print("▶ 运行 FireRedASR2-AED 语音识别...")
                         transcript = transcribe_media_file(media_file)
                         if transcript:
                             resolved.transcript = transcript
                             resolved.transcript_status = "available"
-                            resolved.transcript_method = "whisper-asr"
+                            resolved.transcript_method = "firered-asr2-aed"
                             print("✔ ASR 语音识别成功！")
                     except Exception as e:
                         print(f"⚠ ASR 转录失败: {e}")

@@ -1,3 +1,6 @@
 yt-dlp
-faster-whisper
 httpx
+sherpa-onnx==1.13.7
+numpy
+cryptography
+secretstorage

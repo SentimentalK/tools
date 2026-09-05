@@ -1,0 +1,15 @@
+# Project-local runtime state and artifacts
+.venv/
+.models/
+.tmp/
+
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Temporary media
+*.mp4
+*.wav
+*.m4a
+*.webm
