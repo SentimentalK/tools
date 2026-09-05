@@ -4,39 +4,49 @@ YouTube platform adapter wrapping yt-dlp.
 
 import os
 import re
-import tempfile
 from typing import Optional
 
 try:
     from .base import BaseAdapter
-    from ..models import ContentMetadata, ResolvedContent
+    from ..models import ContentMetadata, ResolveError, TranscriptResult
     from ..ytdlp import download_subtitles, fetch_metadata, parse_srt_to_paragraphs
 except (ImportError, ValueError):
     try:
         from adapters.base import BaseAdapter
-        from models import ContentMetadata, ResolvedContent
+        from models import ContentMetadata, ResolveError, TranscriptResult
         from ytdlp import download_subtitles, fetch_metadata, parse_srt_to_paragraphs
     except (ImportError, ValueError):
         from base import BaseAdapter
-        from models import ContentMetadata, ResolvedContent
+        from models import ContentMetadata, ResolveError, TranscriptResult
         from ytdlp import download_subtitles, fetch_metadata, parse_srt_to_paragraphs
 
 
 class YouTubeAdapter(BaseAdapter):
     """Adapter for YouTube URLs."""
 
+    YT_ARGS = [
+        "--extractor-args", "youtube:player_client=android,web",
+        "--remote-components", "ejs:github",
+    ]
+
     @classmethod
     def can_handle(cls, url: str) -> bool:
         lower = url.lower()
         return "youtube.com" in lower or "youtu.be" in lower
 
-    def resolve(self, url: str, tmp_dir: Optional[str] = None) -> ResolvedContent:
-        yt_args = [
-            "--extractor-args", "youtube:player_client=android,web",
-            "--remote-components", "ejs:github",
-        ]
-        data = fetch_metadata(url, extra_args=yt_args)
-        
+    def resolve_metadata(self, url: str) -> ContentMetadata:
+        """
+        Lightweight metadata resolution for YouTube.
+        Fetches metadata JSON via yt-dlp without downloading media or subtitles.
+        """
+        try:
+            data = fetch_metadata(url, extra_args=self.YT_ARGS)
+        except Exception as e:
+            raise ResolveError(f"YouTube metadata resolution failed for {url}: {e}") from e
+
+        if not data or not isinstance(data, dict):
+            raise ResolveError(f"YouTube returned empty metadata for {url}")
+
         source_id = data.get("id")
         if not source_id:
             m = re.search(r"[?&]v=([^&#]+)", url)
@@ -49,14 +59,14 @@ class YouTubeAdapter(BaseAdapter):
 
         title = data.get("title") or "YouTube_Video"
         creator = data.get("uploader") or data.get("channel") or data.get("uploader_id")
-        
+
         pub_date = data.get("upload_date")
         if pub_date and len(pub_date) == 8:
             published_at = f"{pub_date[:4]}-{pub_date[4:6]}-{pub_date[6:8]}"
         else:
             published_at = None
 
-        meta = ContentMetadata(
+        return ContentMetadata(
             source_type="youtube",
             source_url=url,
             canonical_url=data.get("webpage_url") or url,
@@ -72,36 +82,29 @@ class YouTubeAdapter(BaseAdapter):
             comment_count=data.get("comment_count"),
         )
 
-        # Subtitle extraction
-        cleanup_tmp = False
-        if not tmp_dir:
-            tmp_dir = tempfile.mkdtemp(prefix="ytdlp_yt_")
-            cleanup_tmp = True
+    def try_get_native_transcript(
+        self,
+        url: str,
+        metadata: ContentMetadata,
+        tmp_dir: str,
+    ) -> Optional[TranscriptResult]:
+        """
+        Attempt to download and parse native subtitles (manual or auto-captions).
+        Returns TranscriptResult if available, otherwise None.
+        """
+        prefix = f"sub_{metadata.source_id or 'yt'}"
+        sub_file, method = download_subtitles(url, tmp_dir, prefix, extra_args=self.YT_ARGS)
 
-        prefix = f"sub_{source_id or 'yt'}"
-        sub_file, method = download_subtitles(url, tmp_dir, prefix, extra_args=yt_args)
-
-        transcript = None
-        status = "unavailable"
         if sub_file and os.path.exists(sub_file):
-            paragraphs = parse_srt_to_paragraphs(sub_file)
-            if paragraphs:
-                transcript = paragraphs
-                status = "available"
             try:
-                os.remove(sub_file)
-            except Exception:
-                pass
+                paragraphs = parse_srt_to_paragraphs(sub_file)
+                if paragraphs:
+                    return TranscriptResult(text=paragraphs, method=method or "subtitles")
+            finally:
+                if os.path.exists(sub_file):
+                    try:
+                        os.remove(sub_file)
+                    except Exception:
+                        pass
 
-        if cleanup_tmp:
-            try:
-                os.rmdir(tmp_dir)
-            except Exception:
-                pass
-
-        return ResolvedContent(
-            metadata=meta,
-            transcript=transcript,
-            transcript_status=status,
-            transcript_method=method if transcript else None,
-        )
+        return None

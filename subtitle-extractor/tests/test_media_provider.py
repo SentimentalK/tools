@@ -5,6 +5,7 @@ Unit tests for WeixinMediaProvider, cookie domain filtering, credential redactio
 from dataclasses import dataclass
 import os
 import sys
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -106,25 +107,26 @@ class TestWeixinMediaProvider(unittest.TestCase):
 
     def test_metadata_only_path_never_invokes_media_provider(self):
         """Verify that default metadata ingestion never accesses cookies or media provider."""
-        pipeline = Pipeline(output_dir="/tmp", enable_asr_fallback=False)
-        with patch("src.media.weixin.WeixinMediaProvider.acquire") as mock_acquire, \
-             patch("src.media.weixin.extract_cookies_from_browser") as mock_extract:
-            
-            with patch("src.adapters.weixin.WeixinAdapter.resolve") as mock_resolve:
-                from src.models import ContentMetadata, ResolvedContent
-                mock_resolve.return_value = ResolvedContent(
-                    metadata=ContentMetadata(
-                        source_type="weixin",
-                        source_url="https://weixin.qq.com/sph/test",
-                        title="Mock Video",
-                    ),
-                    transcript=None,
-                    transcript_status="unavailable",
-                )
-                pipeline.process_url("https://weixin.qq.com/sph/test")
+        with tempfile.TemporaryDirectory() as td:
+            pipeline = Pipeline(output_dir=td, enable_asr_fallback=False)
+            with patch("src.media.weixin.WeixinMediaProvider.acquire") as mock_acquire, \
+                 patch("src.media.weixin.extract_cookies_from_browser") as mock_extract:
+                
+                with patch("src.adapters.weixin.WeixinAdapter.resolve") as mock_resolve:
+                    from src.models import ContentMetadata, ResolvedContent
+                    mock_resolve.return_value = ResolvedContent(
+                        metadata=ContentMetadata(
+                            source_type="weixin",
+                            source_url="https://weixin.qq.com/sph/test",
+                            title="Mock Video",
+                        ),
+                        transcript=None,
+                        transcript_status="unavailable",
+                    )
+                    pipeline.process_url("https://weixin.qq.com/sph/test")
 
-            mock_acquire.assert_not_called()
-            mock_extract.assert_not_called()
+                mock_acquire.assert_not_called()
+                mock_extract.assert_not_called()
 
 
 if __name__ == "__main__":

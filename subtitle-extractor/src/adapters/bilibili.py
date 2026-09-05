@@ -4,21 +4,20 @@ Bilibili platform adapter wrapping yt-dlp.
 
 import os
 import re
-import tempfile
 from typing import Optional
 
 try:
     from .base import BaseAdapter
-    from ..models import ContentMetadata, ResolvedContent
+    from ..models import ContentMetadata, ResolveError, TranscriptResult
     from ..ytdlp import download_subtitles, fetch_metadata, parse_srt_to_paragraphs
 except (ImportError, ValueError):
     try:
         from adapters.base import BaseAdapter
-        from models import ContentMetadata, ResolvedContent
+        from models import ContentMetadata, ResolveError, TranscriptResult
         from ytdlp import download_subtitles, fetch_metadata, parse_srt_to_paragraphs
     except (ImportError, ValueError):
         from base import BaseAdapter
-        from models import ContentMetadata, ResolvedContent
+        from models import ContentMetadata, ResolveError, TranscriptResult
         from ytdlp import download_subtitles, fetch_metadata, parse_srt_to_paragraphs
 
 
@@ -30,8 +29,18 @@ class BilibiliAdapter(BaseAdapter):
         lower = url.lower()
         return "bilibili.com" in lower or "b23.tv" in lower
 
-    def resolve(self, url: str, tmp_dir: Optional[str] = None) -> ResolvedContent:
-        data = fetch_metadata(url)
+    def resolve_metadata(self, url: str) -> ContentMetadata:
+        """
+        Lightweight metadata resolution for Bilibili.
+        Fetches metadata JSON via yt-dlp without downloading media or subtitles.
+        """
+        try:
+            data = fetch_metadata(url)
+        except Exception as e:
+            raise ResolveError(f"Bilibili metadata resolution failed for {url}: {e}") from e
+
+        if not data or not isinstance(data, dict):
+            raise ResolveError(f"Bilibili returned empty metadata for {url}")
 
         source_id = data.get("id")
         if not source_id:
@@ -50,7 +59,7 @@ class BilibiliAdapter(BaseAdapter):
         else:
             published_at = None
 
-        meta = ContentMetadata(
+        return ContentMetadata(
             source_type="bilibili",
             source_url=url,
             canonical_url=data.get("webpage_url") or url,
@@ -66,36 +75,29 @@ class BilibiliAdapter(BaseAdapter):
             comment_count=data.get("comment_count"),
         )
 
-        # Subtitle extraction
-        cleanup_tmp = False
-        if not tmp_dir:
-            tmp_dir = tempfile.mkdtemp(prefix="ytdlp_bili_")
-            cleanup_tmp = True
-
-        prefix = f"sub_{source_id or 'bili'}"
+    def try_get_native_transcript(
+        self,
+        url: str,
+        metadata: ContentMetadata,
+        tmp_dir: str,
+    ) -> Optional[TranscriptResult]:
+        """
+        Attempt to download and parse native/AI subtitles.
+        Returns TranscriptResult if available, otherwise None.
+        """
+        prefix = f"sub_{metadata.source_id or 'bili'}"
         sub_file, method = download_subtitles(url, tmp_dir, prefix)
 
-        transcript = None
-        status = "unavailable"
         if sub_file and os.path.exists(sub_file):
-            paragraphs = parse_srt_to_paragraphs(sub_file)
-            if paragraphs:
-                transcript = paragraphs
-                status = "available"
             try:
-                os.remove(sub_file)
-            except Exception:
-                pass
+                paragraphs = parse_srt_to_paragraphs(sub_file)
+                if paragraphs:
+                    return TranscriptResult(text=paragraphs, method=method or "subtitles")
+            finally:
+                if os.path.exists(sub_file):
+                    try:
+                        os.remove(sub_file)
+                    except Exception:
+                        pass
 
-        if cleanup_tmp:
-            try:
-                os.rmdir(tmp_dir)
-            except Exception:
-                pass
-
-        return ResolvedContent(
-            metadata=meta,
-            transcript=transcript,
-            transcript_status=status,
-            transcript_method=method if transcript else None,
-        )
+        return None

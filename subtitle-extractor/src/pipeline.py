@@ -1,9 +1,10 @@
 """
-Core content ingestion pipeline:
-URL -> Platform Detection -> Platform Adapter -> Optional ASR -> Markdown Exporter
+Internal content ingestion orchestration pipeline.
+Coordinates platform adapters, media providers, ASR engine, and exporters.
 """
 
 import os
+import sys
 import tempfile
 from typing import Optional, Tuple
 
@@ -19,7 +20,7 @@ try:
         get_media_provider,
     )
     from .model_manager import get_tmp_dir
-    from .models import ResolvedContent
+    from .models import ContentMetadata, ResolvedContent
 except (ImportError, ValueError):
     from adapters import get_adapter_for_url
     from asr import download_media_for_asr, transcribe_media_file
@@ -32,46 +33,62 @@ except (ImportError, ValueError):
         get_media_provider,
     )
     from model_manager import get_tmp_dir
-    from models import ResolvedContent
+    from models import ContentMetadata, ResolvedContent
 
 
 class Pipeline:
-    """Ingestion pipeline for processing video URLs into structured Markdown."""
+    """Internal orchestration pipeline for resolving metadata and extracting full content."""
 
     def __init__(
         self,
-        output_dir: Optional[str] = None,
-        enable_asr_fallback: bool = False,
+        output_dir: str = "./output",
         browser_name: str = "chrome",
         profile_name: str = "Default",
+        enable_asr_fallback: bool = True,  # Kept for backward compatibility
     ):
-        self.output_dir = output_dir or os.getcwd()
-        self.enable_asr_fallback = enable_asr_fallback
+        self.output_dir = output_dir
         self.browser_name = browser_name
         self.profile_name = profile_name
+        self.enable_asr_fallback = enable_asr_fallback
 
-    def process_url(self, url: str) -> Tuple[str, ResolvedContent]:
+    def resolve_url(self, url: str) -> ContentMetadata:
         """
-        Process a single URL:
-        1. Select adapter
-        2. Resolve metadata and native subtitles (purely anonymous)
-        3. Optional ASR fallback using platform media provider if enabled
-        4. Export to Markdown
+        Capability A: Lightweight, read-only metadata resolution.
+        Never accesses cookies, downloads media/subtitles, or touches ASR.
         """
         adapter = get_adapter_for_url(url)
-        print(f"▶ 识别平台: {adapter.__class__.__name__} ({url})")
+        return adapter.resolve_metadata(url)
+
+    def extract_url(self, url: str) -> ResolvedContent:
+        """
+        Capability B: Full content extraction.
+        Independently resolves URL -> checks native transcript -> acquires media/ASR if needed.
+        Never requires a prior resolve_url call.
+        """
+        adapter = get_adapter_for_url(url)
+        print(f"▶ 识别平台: {adapter.__class__.__name__} ({url})", file=sys.stderr)
 
         with tempfile.TemporaryDirectory(prefix="ingest_", dir=str(get_tmp_dir())) as tmp_dir:
-            # Step 1: Adapter resolves metadata and native subtitles
-            resolved = adapter.resolve(url, tmp_dir=tmp_dir)
+            # Step 1: Resolve metadata
+            metadata = adapter.resolve_metadata(url)
 
-            # Step 2: Optional ASR fallback (only when enabled and native transcript is unavailable)
-            if self.enable_asr_fallback and resolved.transcript_status == "unavailable":
-                media_file = None
-                prefix = f"asr_{resolved.metadata.source_id or 'media'}"
+            # Step 2: Try native subtitles first
+            native = adapter.try_get_native_transcript(url, metadata, tmp_dir)
+            if native:
+                return ResolvedContent(
+                    metadata=metadata,
+                    transcript=native.text,
+                    transcript_status="available",
+                    transcript_method=native.method,
+                )
 
-                if resolved.metadata.source_type == "weixin":
-                    print("▶ 微信视频号未包含外挂字幕，尝试通过本地浏览器会话获取媒体流...")
+            # Step 3: Native transcript unavailable -> Attempt media acquisition & ASR fallback
+            media_file = None
+            prefix = f"asr_{metadata.source_id or 'media'}"
+
+            if self.enable_asr_fallback:
+                if metadata.source_type == "weixin":
+                    print("▶ 微信视频号未包含外挂字幕，尝试通过本地浏览器会话获取媒体流...", file=sys.stderr)
                     try:
                         provider = get_media_provider(
                             "weixin",
@@ -81,35 +98,38 @@ class Pipeline:
                         if provider:
                             media_file = provider.acquire(url, tmp_dir, prefix)
                     except MediaAuthError as e:
-                        print(f"⚠ 微信媒体认证失败 (跳过 ASR): {e}")
+                        print(f"⚠ 微信媒体认证失败 (跳过 ASR): {e}", file=sys.stderr)
                     except MediaResolveError as e:
-                        print(f"⚠ 微信媒体解析失败 (跳过 ASR): {e}")
+                        print(f"⚠ 微信媒体解析失败 (跳过 ASR): {e}", file=sys.stderr)
                     except MediaDownloadError as e:
-                        print(f"⚠ 微信媒体下载失败 (跳过 ASR): {e}")
+                        print(f"⚠ 微信媒体下载失败 (跳过 ASR): {e}", file=sys.stderr)
                     except MediaProviderError as e:
-                        print(f"⚠ 微信媒体获取失败 (跳过 ASR): {e}")
+                        print(f"⚠ 微信媒体获取失败 (跳过 ASR): {e}", file=sys.stderr)
                     except Exception as e:
-                        print(f"⚠ 媒体获取发生异常 (跳过 ASR): {e}")
+                        print(f"⚠ 媒体获取发生异常 (跳过 ASR): {e}", file=sys.stderr)
 
-                elif resolved.metadata.source_type in ("youtube", "bilibili"):
-                    print("▶ 未检测到原生字幕，尝试启动 yt-dlp 音频下载...")
+                elif metadata.source_type in ("youtube", "bilibili"):
+                    print("▶ 未检测到原生字幕，尝试启动 yt-dlp 音频下载...", file=sys.stderr)
                     try:
                         media_file = download_media_for_asr(url, tmp_dir, prefix)
                     except Exception as e:
-                        print(f"⚠ 媒体下载失败 (跳过 ASR): {e}")
+                        print(f"⚠ 媒体下载失败 (跳过 ASR): {e}", file=sys.stderr)
 
-                # If media was acquired, run speech recognition
+                # Step 4: If media was acquired, run FireRedASR2 speech recognition
                 if media_file and os.path.exists(media_file):
                     try:
-                        print("▶ 运行 FireRedASR2-AED 语音识别...")
+                        print("▶ 运行 FireRedASR2-AED 语音识别...", file=sys.stderr)
                         transcript = transcribe_media_file(media_file)
                         if transcript:
-                            resolved.transcript = transcript
-                            resolved.transcript_status = "available"
-                            resolved.transcript_method = "firered-asr2-aed"
-                            print("✔ ASR 语音识别成功！")
+                            print("✔ ASR 语音识别成功！", file=sys.stderr)
+                            return ResolvedContent(
+                                metadata=metadata,
+                                transcript=transcript,
+                                transcript_status="available",
+                                transcript_method="firered-asr2-aed",
+                            )
                     except Exception as e:
-                        print(f"⚠ ASR 转录失败: {e}")
+                        print(f"⚠ ASR 转录失败: {e}", file=sys.stderr)
                     finally:
                         if os.path.exists(media_file):
                             try:
@@ -117,14 +137,26 @@ class Pipeline:
                             except Exception:
                                 pass
 
-        # Step 3: Export to Markdown
+            return ResolvedContent(
+                metadata=metadata,
+                transcript=None,
+                transcript_status="unavailable",
+                transcript_method=None,
+            )
+
+    def process_url(self, url: str) -> Tuple[str, ResolvedContent]:
+        """
+        Internal backward-compatibility wrapper: extracts URL and writes Markdown artifact.
+        """
+        resolved = self.extract_url(url)
         clean_title = sanitize_filename(resolved.metadata.title or "Untitled")
         out_filename = f"{clean_title}.md"
         out_path = os.path.join(self.output_dir, out_filename)
 
+        os.makedirs(self.output_dir, exist_ok=True)
         md_text = export_markdown(resolved)
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(md_text)
 
-        print(f"✨ 导出 Markdown 成功: {out_path}")
+        print(f"✨ 导出 Markdown 成功: {out_path}", file=sys.stderr)
         return out_path, resolved

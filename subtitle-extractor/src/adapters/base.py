@@ -6,12 +6,12 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 try:
-    from ..models import ResolvedContent
+    from ..models import ContentMetadata, ResolvedContent, TranscriptResult
 except (ImportError, ValueError):
     try:
-        from .models import ResolvedContent
+        from .models import ContentMetadata, ResolvedContent, TranscriptResult
     except (ImportError, ValueError):
-        from models import ResolvedContent
+        from models import ContentMetadata, ResolvedContent, TranscriptResult
 
 
 class BaseAdapter(ABC):
@@ -24,9 +24,44 @@ class BaseAdapter(ABC):
         pass
 
     @abstractmethod
-    def resolve(self, url: str, tmp_dir: Optional[str] = None) -> ResolvedContent:
+    def resolve_metadata(self, url: str) -> ContentMetadata:
         """
-        Extract metadata and native subtitles from URL.
-        Returns a ResolvedContent object.
+        Extract lightweight, read-only metadata from URL.
+        Must never download media/subtitles, read browser cookies, or initialize ASR.
+        Must raise ResolveError if resolution fails.
         """
         pass
+
+    @abstractmethod
+    def try_get_native_transcript(
+        self,
+        url: str,
+        metadata: ContentMetadata,
+        tmp_dir: str,
+    ) -> Optional[TranscriptResult]:
+        """
+        Attempt to retrieve native subtitles/transcripts for this platform.
+        Returns TranscriptResult if native subtitles exist, or None.
+        """
+        pass
+
+    def resolve(self, url: str, tmp_dir: Optional[str] = None) -> ResolvedContent:
+        """
+        Internal backward-compatibility wrapper combining resolve_metadata
+        and try_get_native_transcript.
+        """
+        metadata = self.resolve_metadata(url)
+        native = self.try_get_native_transcript(url, metadata, tmp_dir or "")
+        if native:
+            return ResolvedContent(
+                metadata=metadata,
+                transcript=native.text,
+                transcript_status="available",
+                transcript_method=native.method,
+            )
+        return ResolvedContent(
+            metadata=metadata,
+            transcript=None,
+            transcript_status="unavailable",
+            transcript_method=None,
+        )

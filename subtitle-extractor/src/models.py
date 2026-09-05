@@ -1,10 +1,27 @@
 """
-Common data models for content metadata and resolved content.
+Common data models and typed errors for content metadata and resolved content.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 import datetime
 from typing import Any, Dict, Optional
+
+
+class ResolveError(Exception):
+    """Raised when lightweight metadata resolution fails."""
+    pass
+
+
+class UnsupportedURLError(ResolveError, ValueError):
+    """Raised when no platform adapter can handle the URL."""
+    pass
+
+
+@dataclass
+class TranscriptResult:
+    """Internal representation of a retrieved native subtitle transcript."""
+    text: str
+    method: str  # e.g. "subtitles", "auto-subtitles"
 
 
 @dataclass
@@ -31,6 +48,10 @@ class ContentMetadata:
         if self.captured_at is None:
             self.captured_at = datetime.datetime.now().astimezone().isoformat()
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert metadata to JSON-serializable dictionary."""
+        return asdict(self)
+
 
 @dataclass
 class ResolvedContent:
@@ -38,3 +59,7 @@ class ResolvedContent:
     transcript: Optional[str] = None
     transcript_status: str = "unavailable"  # "available", "unavailable", "failed"
     transcript_method: Optional[str] = None  # "subtitles", "auto-subtitles", "firered-asr2-aed", None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert resolved content to JSON-serializable dictionary."""
+        return asdict(self)

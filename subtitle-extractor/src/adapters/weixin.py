@@ -9,14 +9,14 @@ import httpx
 
 try:
     from .base import BaseAdapter
-    from ..models import ContentMetadata, ResolvedContent
+    from ..models import ContentMetadata, ResolveError, TranscriptResult
 except (ImportError, ValueError):
     try:
         from adapters.base import BaseAdapter
-        from models import ContentMetadata, ResolvedContent
+        from models import ContentMetadata, ResolveError, TranscriptResult
     except (ImportError, ValueError):
         from base import BaseAdapter
-        from models import ContentMetadata, ResolvedContent
+        from models import ContentMetadata, ResolveError, TranscriptResult
 
 
 class WeixinAdapter(BaseAdapter):
@@ -40,19 +40,15 @@ class WeixinAdapter(BaseAdapter):
             return m.group(1)
         return ""
 
-    def resolve(self, url: str, tmp_dir: Optional[str] = None) -> ResolvedContent:
+    def resolve_metadata(self, url: str) -> ContentMetadata:
+        """
+        Lightweight, read-only metadata resolution for WeChat Channels.
+        Purely anonymous HTTP request; never accesses cookies, downloads media, or touches ASR.
+        Raises ResolveError if resolution fails.
+        """
         short_uri = self.extract_short_uri(url)
         if not short_uri:
-            # Fallback metadata when ID cannot be extracted
-            meta = ContentMetadata(
-                source_type="weixin",
-                source_url=url,
-                title="Weixin_Channels_Video",
-            )
-            return ResolvedContent(
-                metadata=meta,
-                transcript_status="failed",
-            )
+            raise ResolveError(f"Cannot extract WeChat Channels SPH identifier from URL: {url}")
 
         headers = {
             "Content-Type": "application/json",
@@ -71,27 +67,37 @@ class WeixinAdapter(BaseAdapter):
         try:
             with httpx.Client(timeout=10.0) as client:
                 resp = client.post(self.API_URL, headers=headers, json=payload)
+                resp.raise_for_status()
                 data = resp.json()
         except Exception as e:
-            # Network or parsing failure
-            meta = ContentMetadata(
-                source_type="weixin",
-                source_url=url,
-                source_id=short_uri,
-                title="Weixin_Channels_Video",
-                platform_metadata={"error": str(e)},
-            )
-            return ResolvedContent(
-                metadata=meta,
-                transcript_status="failed",
-            )
+            raise ResolveError(f"WeChat Channels API request failed: {e}") from e
 
-        return self.parse_api_response(url, short_uri, data)
+        if not isinstance(data, dict):
+            raise ResolveError(f"WeChat Channels API returned non-dict response for {url}")
+
+        err_code = data.get("errCode", 0)
+        if err_code != 0:
+            err_msg = data.get("errMsg") or f"Error code {err_code}"
+            raise ResolveError(f"WeChat Channels API error for {url}: {err_msg}")
+
+        data_block = data.get("data")
+        if not data_block or not isinstance(data_block, dict):
+            raise ResolveError(f"WeChat Channels API returned empty data payload for {url}")
+
+        return self._parse_metadata(url, short_uri, data_block)
+
+    def try_get_native_transcript(
+        self,
+        url: str,
+        metadata: ContentMetadata,
+        tmp_dir: str,
+    ) -> Optional[TranscriptResult]:
+        """WeChat Channels SPH does not have native timed subtitle tracks."""
+        return None
 
     @classmethod
-    def parse_api_response(cls, url: str, short_uri: str, data: dict) -> ResolvedContent:
-        """Parse get_feed_info response dictionary into ResolvedContent."""
-        data_block = data.get("data", {}) if isinstance(data, dict) else {}
+    def _parse_metadata(cls, url: str, short_uri: str, data_block: dict) -> ContentMetadata:
+        """Parse get_feed_info data block into ContentMetadata."""
         author_info = data_block.get("authorInfo") or {}
         feed_info = data_block.get("feedInfo") or {}
         scene_info = data_block.get("sceneInfo") or {}
@@ -99,7 +105,6 @@ class WeixinAdapter(BaseAdapter):
         creator = author_info.get("nickname") or None
         description = feed_info.get("description") or None
 
-        # Determine readable title from description or fallback
         if description and description.strip():
             title = description.strip().split("\n")[0][:80]
         else:
@@ -129,7 +134,7 @@ class WeixinAdapter(BaseAdapter):
         if author_info.get("headImgUrl"):
             platform_meta["author_avatar"] = author_info["headImgUrl"]
 
-        meta = ContentMetadata(
+        return ContentMetadata(
             source_type="weixin",
             source_url=url,
             canonical_url=f"https://weixin.qq.com/sph/{short_uri}",
@@ -144,7 +149,15 @@ class WeixinAdapter(BaseAdapter):
             platform_metadata=platform_meta if platform_meta else None,
         )
 
-        # WeChat Channels has no public native separate timed subtitle tracks
+    @classmethod
+    def parse_api_response(cls, url: str, short_uri: str, data: dict) -> "ResolvedContent":
+        """Backward-compatibility parser returning ResolvedContent."""
+        try:
+            from ..models import ResolvedContent
+        except (ImportError, ValueError):
+            from models import ResolvedContent
+        data_block = data.get("data", {}) if isinstance(data, dict) else {}
+        meta = cls._parse_metadata(url, short_uri, data_block)
         return ResolvedContent(
             metadata=meta,
             transcript=None,
