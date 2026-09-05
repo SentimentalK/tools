@@ -1,0 +1,33 @@
+{
+  "data": {
+    "authorInfo": {
+      "nickname": "玩娱少女",
+      "headImgUrl": "https://wx.qlogo.cn/finderhead/sample_avatar/0",
+      "authIconUrl": ""
+    },
+    "feedInfo": {
+      "picInfo": [],
+      "description": "鹦鹉:我也要这样婶儿的#看一遍笑一遍#萌宠#搞笑#抽象#万万没想到",
+      "favCountFmt": "1.4万",
+      "likeCountFmt": "8968",
+      "forwardCountFmt": "1.9万",
+      "commentCountFmt": "730",
+      "createtime": 1788570358,
+      "isHardAd": false,
+      "coverUrl": "https://finder.video.qq.com/sample_cover"
+    },
+    "errMsg": {
+      "type": 0
+    },
+    "sceneInfo": {
+      "dynamicExportId": "export/sample_export_id_12345",
+      "commentScene": 39,
+      "expiredTime": 1788642836,
+      "requestScene": 0,
+      "entryScene": 64,
+      "entryCardType": 48
+    }
+  },
+  "errCode": 0,
+  "errMsg": ""
+}
