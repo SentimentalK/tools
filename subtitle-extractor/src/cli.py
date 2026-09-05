@@ -26,11 +26,26 @@ def main():
     parser.add_argument(
         "--enable-asr",
         action="store_true",
-        help="Enable Whisper ASR fallback when no native subtitles are found (supported platforms only)",
+        help="Enable Whisper ASR fallback when no native subtitles are found",
+    )
+    parser.add_argument(
+        "--browser",
+        default="chrome",
+        help="Browser to reuse local session cookies from (default: chrome)",
+    )
+    parser.add_argument(
+        "--profile",
+        default="Default",
+        help="Browser profile directory name (default: Default)",
     )
 
     args = parser.parse_args()
-    pipeline = Pipeline(output_dir=args.output_dir, enable_asr_fallback=args.enable_asr)
+    pipeline = Pipeline(
+        output_dir=args.output_dir,
+        enable_asr_fallback=args.enable_asr,
+        browser_name=args.browser,
+        profile_name=args.profile,
+    )
 
     success_count = 0
     for url in args.urls:
