@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from typing import Any, Dict, Optional, Tuple
 
 
@@ -17,6 +18,11 @@ def find_binary(name: str, env_var: Optional[str] = None, fallback_paths: Option
         cand = os.environ[env_var]
         if os.path.exists(cand) and os.access(cand, os.X_OK):
             return cand
+
+    # Prioritize binary within the current python environment (e.g. .venv/bin/)
+    venv_cand = os.path.join(sys.prefix, "bin", name)
+    if os.path.exists(venv_cand) and os.access(venv_cand, os.X_OK):
+        return venv_cand
 
     which_path = shutil.which(name)
     if which_path:
@@ -90,7 +96,7 @@ def download_subtitles(
     official_args = [
         "--skip-download",
         "--write-subs",
-        "--sub-langs", "zh-Hans,zh-CN,zh,en",
+        "--sub-langs", "ai-zh,zh-Hans,zh-CN,zh,en",
         "-o", template,
     ]
     if extra_args:
@@ -107,7 +113,7 @@ def download_subtitles(
     auto_args = [
         "--skip-download",
         "--write-auto-subs",
-        "--sub-langs", "zh-Hans,zh-CN,zh,en",
+        "--sub-langs", "ai-zh,zh-Hans,zh-CN,zh,en",
         "-o", template,
     ]
     if extra_args:
@@ -125,7 +131,10 @@ def download_subtitles(
 
 def _find_subtitle_file(output_dir: str, prefix: str) -> Optional[str]:
     """Find downloaded subtitle file matching standard extensions."""
-    for ext in [".zh-Hans.srt", ".zh-CN.srt", ".zh.srt", ".en.srt", ".srt", ".zh-Hans.vtt", ".zh-CN.vtt", ".zh.vtt", ".en.vtt", ".vtt"]:
+    for ext in [
+        ".zh-Hans.srt", ".zh-CN.srt", ".zh.srt", ".ai-zh.srt", ".en.srt", ".srt",
+        ".zh-Hans.vtt", ".zh-CN.vtt", ".zh.vtt", ".ai-zh.vtt", ".en.vtt", ".vtt",
+    ]:
         found = glob.glob(os.path.join(output_dir, f"{prefix}*{ext}"))
         if found:
             return found[0]

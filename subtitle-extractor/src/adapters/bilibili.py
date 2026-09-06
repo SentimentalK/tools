@@ -24,20 +24,43 @@ except (ImportError, ValueError):
 class BilibiliAdapter(BaseAdapter):
     """Adapter for Bilibili URLs."""
 
+    def __init__(self, browser_name: str = "chrome", profile_name: str = "Default"):
+        self.browser_name = browser_name
+        self.profile_name = profile_name
+
     @classmethod
     def can_handle(cls, url: str) -> bool:
         lower = url.lower()
         return "bilibili.com" in lower or "b23.tv" in lower
+
+    def _get_browser_args(self) -> list:
+        args = []
+        if self.browser_name:
+            if self.profile_name and self.profile_name != "Default":
+                args.extend(["--cookies-from-browser", f"{self.browser_name}:{self.profile_name}"])
+            else:
+                args.extend(["--cookies-from-browser", self.browser_name])
+        return args
 
     def resolve_metadata(self, url: str) -> ContentMetadata:
         """
         Lightweight metadata resolution for Bilibili.
         Fetches metadata JSON via yt-dlp without downloading media or subtitles.
         """
+        data = None
         try:
-            data = fetch_metadata(url)
-        except Exception as e:
-            raise ResolveError(f"Bilibili metadata resolution failed for {url}: {e}") from e
+            data = fetch_metadata(url, extra_args=["--no-playlist"])
+        except Exception:
+            data = None
+
+        # Fallback to browser cookies if Bilibili security triggers 412 / empty response
+        if not data or not isinstance(data, dict):
+            browser_args = self._get_browser_args()
+            if browser_args:
+                try:
+                    data = fetch_metadata(url, extra_args=["--no-playlist"] + browser_args)
+                except Exception as e:
+                    raise ResolveError(f"Bilibili metadata resolution failed for {url}: {e}") from e
 
         if not data or not isinstance(data, dict):
             raise ResolveError(f"Bilibili returned empty metadata for {url}")
@@ -86,7 +109,12 @@ class BilibiliAdapter(BaseAdapter):
         Returns TranscriptResult if available, otherwise None.
         """
         prefix = f"sub_{metadata.source_id or 'bili'}"
-        sub_file, method = download_subtitles(url, tmp_dir, prefix)
+        browser_args = self._get_browser_args()
+        extra_args = ["--no-playlist"]
+        if browser_args:
+            extra_args.extend(browser_args)
+
+        sub_file, method = download_subtitles(url, tmp_dir, prefix, extra_args=extra_args)
 
         if sub_file and os.path.exists(sub_file):
             try:

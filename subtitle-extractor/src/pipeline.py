@@ -70,7 +70,11 @@ class Pipeline:
             )
             from model_manager import get_tmp_dir
 
-        adapter = get_adapter_for_url(url)
+        adapter = get_adapter_for_url(
+            url,
+            browser_name=self.browser_name,
+            profile_name=self.profile_name,
+        )
         print(f"▶ 识别平台: {adapter.__class__.__name__} ({url})", file=sys.stderr)
 
         with tempfile.TemporaryDirectory(prefix="ingest_", dir=str(get_tmp_dir())) as tmp_dir:

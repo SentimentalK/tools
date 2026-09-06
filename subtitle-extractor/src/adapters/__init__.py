@@ -29,9 +29,12 @@ ADAPTERS = [
 ]
 
 
-def get_adapter_for_url(url: str) -> BaseAdapter:
+def get_adapter_for_url(url: str, browser_name: str = "chrome", profile_name: str = "Default") -> BaseAdapter:
     """Find and instantiate the matching adapter for a URL."""
     for adapter_cls in ADAPTERS:
         if adapter_cls.can_handle(url):
-            return adapter_cls()
+            try:
+                return adapter_cls(browser_name=browser_name, profile_name=profile_name)
+            except TypeError:
+                return adapter_cls()
     raise UnsupportedURLError(f"No adapter registered for URL: {url}")
