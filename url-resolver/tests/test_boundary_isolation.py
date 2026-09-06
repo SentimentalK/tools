@@ -8,7 +8,30 @@ import os
 import subprocess
 import sys
 import unittest
-import psutil
+
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
+
+def _count_browser_processes():
+    if psutil is not None:
+        return sum(1 for p in psutil.process_iter(['name']) if p.info['name'] and any(x in p.info['name'].lower() for x in ('chrome', 'chromium', 'playwright')))
+    if os.path.exists("/proc"):
+        count = 0
+        for pid in os.listdir("/proc"):
+            if pid.isdigit():
+                try:
+                    with open(os.path.join("/proc", pid, "comm"), "r") as f:
+                        comm = f.read().lower()
+                        if any(b in comm for b in ("chrome", "chromium", "playwright")):
+                            count += 1
+                except (FileNotFoundError, PermissionError):
+                    pass
+        return count
+    return 0
+
 
 URL_RESOLVER_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -53,7 +76,7 @@ class TestBoundaryIsolation(unittest.TestCase):
         from url_resolver import resolve_url
         from unittest.mock import patch, MagicMock
 
-        procs_before = sum(1 for p in psutil.process_iter(['name']) if p.info['name'] and 'chrome' in p.info['name'].lower())
+        procs_before = _count_browser_processes()
         
         mock_resp = MagicMock()
         mock_resp.status = 200
@@ -65,7 +88,7 @@ class TestBoundaryIsolation(unittest.TestCase):
             outcome = resolve_url("https://example.com")
             self.assertEqual(outcome.status, "resolved")
 
-        procs_after = sum(1 for p in psutil.process_iter(['name']) if p.info['name'] and 'chrome' in p.info['name'].lower())
+        procs_after = _count_browser_processes()
         self.assertEqual(procs_after - procs_before, 0, "Expected 0 new browser processes spawned")
 
 
