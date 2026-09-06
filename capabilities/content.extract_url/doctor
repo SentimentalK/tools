@@ -35,19 +35,33 @@ print(json.dumps(actions))
 }
 
 # 1. Check Python 3 (>= 3.10)
-if command -v python3 &>/dev/null; then
-    PY_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-    PY_OK=$(python3 -c 'import sys; print("1" if sys.version_info >= (3, 10) else "0")')
-    if [[ "$PY_OK" == "1" ]]; then
-        CHECKS=$(add_check "python_runtime" "ok" "Python $PY_VER found at $(command -v python3)")
-    else
-        CHECKS=$(add_check "python_runtime" "failed" "Python version $PY_VER is older than required 3.10")
-        ACTIONS=$(add_action "Install Python 3.10 or higher")
-        STATUS="NEEDS_USER_ACTION"
-        BASE_READY=false
-    fi
+if ! command -v python3 &>/dev/null; then
+    cat << 'EOF'
+{
+  "status": "NEEDS_USER_ACTION",
+  "base_ready": false,
+  "asr_available": false,
+  "checks": [
+    {
+      "name": "python_runtime",
+      "status": "failed",
+      "message": "python3 executable not found in PATH"
+    }
+  ],
+  "actions": [
+    "Install Python 3.10 or higher"
+  ]
+}
+EOF
+    exit 0
+fi
+
+PY_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+PY_OK=$(python3 -c 'import sys; print("1" if sys.version_info >= (3, 10) else "0")')
+if [[ "$PY_OK" == "1" ]]; then
+    CHECKS=$(add_check "python_runtime" "ok" "Python $PY_VER found at $(command -v python3)")
 else
-    CHECKS=$(add_check "python_runtime" "failed" "python3 executable not found in PATH")
+    CHECKS=$(add_check "python_runtime" "failed" "Python version $PY_VER is older than required 3.10")
     ACTIONS=$(add_action "Install Python 3.10 or higher")
     STATUS="NEEDS_USER_ACTION"
     BASE_READY=false
