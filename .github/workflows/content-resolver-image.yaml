@@ -110,6 +110,19 @@ jobs:
             ! command -v chrome
           '
 
+          echo "=== 4. Verifying /healthz and /readyz 200 access logs are suppressed ==="
+          docker logs smoke-resolver > /tmp/smoke-resolver.log
+          if grep -q '"GET /healthz HTTP/1.1" 200' /tmp/smoke-resolver.log; then
+            echo "Error: /healthz 200 OK was logged in container stdout!"
+            cat /tmp/smoke-resolver.log
+            exit 1
+          fi
+          if grep -q '"GET /readyz HTTP/1.1" 200' /tmp/smoke-resolver.log; then
+            echo "Error: /readyz 200 OK was logged in container stdout!"
+            cat /tmp/smoke-resolver.log
+            exit 1
+          fi
+
           echo "Deterministic container verification passed!"
 
       - name: CI Live Network Probes (Informational Contract Validation)
@@ -141,6 +154,14 @@ jobs:
           probe_url "YouTube" "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
           probe_url "Weixin" "https://weixin.qq.com/sph/AF17JEGHVd"
           probe_url "Bilibili" "https://www.bilibili.com/video/BV1xx411c7mD"
+
+          echo "Verifying structured business resolution logs exist in container stdout..."
+          docker logs smoke-resolver > /tmp/smoke-resolver-live.log
+          if ! grep -q '"event": "resolve_complete"' /tmp/smoke-resolver-live.log; then
+            echo "Error: Missing structured resolve_complete log in container stdout!"
+            cat /tmp/smoke-resolver-live.log
+            exit 1
+          fi
 
           docker stop smoke-resolver
 
