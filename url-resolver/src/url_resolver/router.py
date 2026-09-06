@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from typing import Optional, Tuple
 from .models import InvalidUrlError, ResolverValidationError, UnsupportedProtocolError
 from .strategies.base import BaseStrategy
+from .strategies.bilibili_wbi import BilibiliWbiStrategy
 from .strategies.generic_static import GenericStaticStrategy
 from .strategies.weixin_preview import WeixinPreviewStrategy
 
@@ -18,9 +19,11 @@ class ResolverRouter:
         self,
         generic_strategy: Optional[BaseStrategy] = None,
         weixin_strategy: Optional[BaseStrategy] = None,
+        bilibili_strategy: Optional[BaseStrategy] = None,
     ):
         self.generic_strategy = generic_strategy or GenericStaticStrategy()
         self.weixin_strategy = weixin_strategy or WeixinPreviewStrategy(fallback_strategy=self.generic_strategy)
+        self.bilibili_strategy = bilibili_strategy or BilibiliWbiStrategy(fallback_strategy=self.generic_strategy)
 
     def validate_and_normalize(self, url: str) -> str:
         """Validates that URL is non-empty and has http/https scheme."""
@@ -85,4 +88,6 @@ class ResolverRouter:
         source_type, _, _ = self.identify(url)
         if source_type == "weixin":
             return self.weixin_strategy
+        if source_type == "bilibili":
+            return self.bilibili_strategy
         return self.generic_strategy

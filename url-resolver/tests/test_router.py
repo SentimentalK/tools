@@ -72,8 +72,10 @@ class TestResolverRouter(unittest.TestCase):
         yt_strat = self.router.route("https://www.youtube.com/watch?v=123")
         self.assertIsInstance(yt_strat, GenericStaticStrategy)
 
+        from url_resolver.strategies.bilibili_wbi import BilibiliWbiStrategy
+
         bili_strat = self.router.route("https://www.bilibili.com/video/BV123")
-        self.assertIsInstance(bili_strat, GenericStaticStrategy)
+        self.assertIsInstance(bili_strat, BilibiliWbiStrategy)
 
         web_strat = self.router.route("https://example.com")
         self.assertIsInstance(web_strat, GenericStaticStrategy)
