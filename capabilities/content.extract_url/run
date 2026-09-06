@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+set -eo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TOOLS_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+EXTRACTOR_DIR="$TOOLS_ROOT/subtitle-extractor"
+PYTHON_BIN="$EXTRACTOR_DIR/.venv/bin/python"
+
+INPUT_FILE=""
+OUTPUT_DIR=""
+DIRECT_URL=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --input)
+            INPUT_FILE="$2"
+            shift 2
+            ;;
+        --output-dir)
+            OUTPUT_DIR="$2"
+            shift 2
+            ;;
+        --url)
+            DIRECT_URL="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            shift
+            ;;
+    esac
+done
+
+if [[ -z "$OUTPUT_DIR" ]]; then
+    echo "Error: --output-dir is required." >&2
+    exit 1
+fi
+
+mkdir -p "$OUTPUT_DIR"
+
+JOB_ID="job-unknown"
+ATTEMPT_ID="att-unknown"
+URL=""
+
+if [[ -n "$INPUT_FILE" && -f "$INPUT_FILE" ]]; then
+    # Read parameters from input.json
+    JOB_ID=$(python3 -c "import json, sys; data=json.load(open(sys.argv[1])); print(data.get('job_id', 'job-unknown'))" "$INPUT_FILE")
+    ATTEMPT_ID=$(python3 -c "import json, sys; data=json.load(open(sys.argv[1])); print(data.get('attempt_id', 'att-unknown'))" "$INPUT_FILE")
+    URL=$(python3 -c "import json, sys; data=json.load(open(sys.argv[1])); print(data.get('params', {}).get('url', ''))" "$INPUT_FILE")
+elif [[ -n "$DIRECT_URL" ]]; then
+    URL="$DIRECT_URL"
+else
+    echo "Error: Either --input <file> with valid JSON or --url <URL> must be provided." >&2
+    exit 1
+fi
+
+if [[ -z "$URL" ]]; then
+    echo "Error: URL parameter is empty." >&2
+    exit 1
+fi
+
+if [[ ! -x "$PYTHON_BIN" ]]; then
+    echo "Error: Virtual environment python not found at $PYTHON_BIN. Run ./setup first." >&2
+    exit 2
+fi
+
+TMP_RESULT="$OUTPUT_DIR/.${ATTEMPT_ID}_result.json.tmp"
+FINAL_RESULT="$OUTPUT_DIR/result.json"
+TMP_COMPLETION="$OUTPUT_DIR/.${ATTEMPT_ID}_completion.json.tmp"
+FINAL_COMPLETION="$OUTPUT_DIR/completion.json"
+
+echo "=== Subtitle Extractor Running ==="
+echo "Target URL: $URL"
+echo "Output directory: $OUTPUT_DIR"
+
+set +e
+"$PYTHON_BIN" "$EXTRACTOR_DIR/src/cli.py" extract "$URL" --json > "$TMP_RESULT"
+SCRIPT_EXIT_CODE=$?
+set -e
+
+# Ensure file is synced to disk if it exists
+sync || true
+
+if [[ $SCRIPT_EXIT_CODE -eq 0 && -s "$TMP_RESULT" ]]; then
+    # Validate JSON syntax
+    if python3 -m json.tool "$TMP_RESULT" > /dev/null 2>&1; then
+        mv "$TMP_RESULT" "$FINAL_RESULT"
+        
+        # Calculate SHA256 and size
+        FILE_SIZE=$(wc -c < "$FINAL_RESULT" | tr -d ' ')
+        FILE_SHA256=$(sha256sum "$FINAL_RESULT" | awk '{print $1}')
+        
+        # Check transcript_status
+        TRANSCRIPT_STATUS=$(python3 -c "
+import json, sys
+data = json.load(open(sys.argv[1]))
+print(data.get('transcript_status', 'unavailable'))
+" "$FINAL_RESULT")
+        
+        BUSINESS_STATUS="transcript_unavailable"
+        if [[ "$TRANSCRIPT_STATUS" == "available" ]]; then
+            BUSINESS_STATUS="transcript_available"
+        elif [[ "$TRANSCRIPT_STATUS" == "failed" ]]; then
+            BUSINESS_STATUS="transcript_failed"
+        fi
+        
+        python3 -c "
+import json, sys
+completion = {
+    'job_id': sys.argv[1],
+    'attempt_id': sys.argv[2],
+    'requested_url': sys.argv[3],
+    'script_exit_code': 0,
+    'artifact': {
+        'file_name': 'result.json',
+        'size_bytes': int(sys.argv[4]),
+        'sha256': sys.argv[5]
+    },
+    'business_status': sys.argv[6],
+    'error': None
+}
+with open(sys.argv[7], 'w', encoding='utf-8') as f:
+    json.dump(completion, f, indent=2)
+" "$JOB_ID" "$ATTEMPT_ID" "$URL" "$FILE_SIZE" "$FILE_SHA256" "$BUSINESS_STATUS" "$TMP_COMPLETION"
+
+        mv "$TMP_COMPLETION" "$FINAL_COMPLETION"
+        echo "Extraction finished successfully. Published completion.json"
+        exit 0
+    else
+        echo "Error: Output is not valid JSON." >&2
+        rm -f "$TMP_RESULT"
+        SCRIPT_EXIT_CODE=3
+    fi
+fi
+
+# If we reached here, execution failed or output was invalid
+rm -f "$TMP_RESULT"
+
+python3 -c "
+import json, sys
+completion = {
+    'job_id': sys.argv[1],
+    'attempt_id': sys.argv[2],
+    'requested_url': sys.argv[3],
+    'script_exit_code': int(sys.argv[4]),
+    'artifact': None,
+    'business_status': 'failed',
+    'error': {
+        'stage': 'execution',
+        'code': 'EXTRACTOR_EXECUTION_FAILED',
+        'message': f'Extractor exited with code {sys.argv[4]}'
+    }
+}
+with open(sys.argv[5], 'w', encoding='utf-8') as f:
+    json.dump(completion, f, indent=2)
+" "$JOB_ID" "$ATTEMPT_ID" "$URL" "$SCRIPT_EXIT_CODE" "$TMP_COMPLETION"
+
+mv "$TMP_COMPLETION" "$FINAL_COMPLETION"
+echo "Extraction failed with exit code $SCRIPT_EXIT_CODE. Published completion.json" >&2
+exit "$SCRIPT_EXIT_CODE"

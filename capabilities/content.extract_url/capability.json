@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": 1,
+  "capability_id": "content.extract_url",
+  "version": "0.1.0",
+  "manifest_revision": 1,
+  "description": "Autonomous end-to-end extraction resolving metadata, native subtitles, and ASR fallback",
+  "execution": {
+    "profile": "worker",
+    "entrypoints": {
+      "doctor": "./doctor",
+      "setup": "./setup",
+      "run": "./run"
+    },
+    "timeouts": {
+      "setup_timeout": 600,
+      "submission_timeout": 30,
+      "execution_timeout": 600
+    }
+  },
+  "input_schema": {
+    "type": "object",
+    "required": ["url"],
+    "properties": {
+      "url": {
+        "type": "string",
+        "format": "uri"
+      }
+    },
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["metadata", "transcript_status"],
+    "properties": {
+      "metadata": {
+        "type": "object",
+        "required": ["source_type", "source_url"],
+        "properties": {
+          "source_type": { "type": "string" },
+          "source_url": { "type": "string" },
+          "canonical_url": { "type": ["string", "null"] },
+          "source_id": { "type": ["string", "null"] },
+          "title": { "type": ["string", "null"] },
+          "description": { "type": ["string", "null"] },
+          "creator": { "type": ["string", "null"] },
+          "published_at": { "type": ["string", "null"] },
+          "duration_seconds": { "type": ["number", "null"] },
+          "language": { "type": ["string", "null"] },
+          "thumbnail_url": { "type": ["string", "null"] },
+          "media_url": { "type": ["string", "null"] },
+          "view_count": { "type": ["integer", "null"] },
+          "like_count": { "type": ["integer", "string", "null"] },
+          "comment_count": { "type": ["integer", "string", "null"] },
+          "captured_at": { "type": ["string", "null"] },
+          "platform_metadata": { "type": ["object", "null"] }
+        }
+      },
+      "transcript": {
+        "type": ["string", "null"]
+      },
+      "transcript_status": {
+        "type": "string",
+        "enum": ["available", "unavailable", "failed"]
+      },
+      "transcript_method": {
+        "type": ["string", "null"]
+      }
+    }
+  }
+}
