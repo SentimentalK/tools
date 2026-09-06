@@ -173,9 +173,11 @@ class TestBilibiliWbiStrategy(unittest.TestCase):
         weixin_strategy = router.route("https://weixin.qq.com/sph/AF17JEGHVd")
         self.assertIsInstance(weixin_strategy, WeixinPreviewStrategy)
 
+        from url_resolver.strategies.youtube_oembed import YoutubeOembedStrategy
         yt_strategy = router.route("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
-        self.assertIsInstance(yt_strategy, GenericStaticStrategy)
+        self.assertIsInstance(yt_strategy, YoutubeOembedStrategy)
 
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -33,7 +33,42 @@ class TestResolveUrlEntrypoint(unittest.TestCase):
             self.assertIn("title", outcome.fields_resolved)
             self.assertIn("description", outcome.fields_resolved)
 
-    def test_resolve_youtube_generic(self):
+    def test_resolve_youtube_oembed(self):
+        from url_resolver.fetch.base import FetchResult
+
+        oembed_json = '{"title": "Oembed Title", "author_name": "Oembed Creator", "thumbnail_url": "https://img.com/t.jpg"}'
+        mock_oembed_res = FetchResult(
+            requested_url="https://www.youtube.com/oembed",
+            final_url="https://www.youtube.com/oembed",
+            http_status=200,
+            content_type="application/json",
+            headers={},
+            body=oembed_json,
+            latency_ms=80,
+        )
+
+        with patch("url_resolver.fetch.direct_http.DirectHttpFetcher.fetch", return_value=mock_oembed_res):
+            outcome = resolve_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+            self.assertEqual(outcome.status, "resolved")
+            self.assertEqual(outcome.metadata.source_type, "youtube")
+            self.assertEqual(outcome.metadata.source_id, "dQw4w9WgXcQ")
+            self.assertEqual(outcome.metadata.title, "Oembed Title")
+            self.assertEqual(outcome.metadata.creator, "Oembed Creator")
+            self.assertEqual(outcome.diagnostics.strategy, "youtube_oembed")
+
+    def test_resolve_youtube_fallback_generic(self):
+        from url_resolver.fetch.base import FetchResult
+
+        mock_oembed_err = FetchResult(
+            requested_url="https://www.youtube.com/oembed",
+            final_url="https://www.youtube.com/oembed",
+            http_status=404,
+            content_type="text/plain",
+            headers={},
+            body="Not Found",
+            latency_ms=50,
+        )
+
         html = """
         <html>
         <head>
@@ -58,7 +93,8 @@ class TestResolveUrlEntrypoint(unittest.TestCase):
         mock_resp.html_content = html
         mock_resp.headers = {}
 
-        with patch("scrapling.fetchers.Fetcher.get", return_value=mock_resp):
+        with patch("url_resolver.fetch.direct_http.DirectHttpFetcher.fetch", return_value=mock_oembed_err), \
+             patch("scrapling.fetchers.Fetcher.get", return_value=mock_resp):
             outcome = resolve_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
             self.assertEqual(outcome.status, "resolved")
             self.assertEqual(outcome.metadata.source_type, "youtube")
@@ -66,6 +102,7 @@ class TestResolveUrlEntrypoint(unittest.TestCase):
             self.assertEqual(outcome.metadata.title, "Rick Astley Video")
             self.assertEqual(outcome.metadata.creator, "RickAstleyVEVO")
             self.assertEqual(outcome.metadata.duration_seconds, 213)
+            self.assertEqual(outcome.diagnostics.strategy, "generic_static")
 
     def test_resolve_malformed_url_raises_exception(self):
         with self.assertRaises(ResolverValidationError):
@@ -74,3 +111,4 @@ class TestResolveUrlEntrypoint(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

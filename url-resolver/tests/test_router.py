@@ -44,6 +44,38 @@ class TestResolverRouter(unittest.TestCase):
         self.assertEqual(sid, "jMjSVF14j30")
         self.assertEqual(canon, "https://www.youtube.com/watch?v=jMjSVF14j30")
 
+    def test_identify_youtube_shorts(self):
+        url = "https://www.youtube.com/shorts/jMjSVF14j30?feature=share"
+        st, sid, canon = self.router.identify(url)
+        self.assertEqual(st, "youtube")
+        self.assertEqual(sid, "jMjSVF14j30")
+        self.assertEqual(canon, "https://www.youtube.com/watch?v=jMjSVF14j30")
+
+    def test_identify_youtube_live(self):
+        url = "https://www.youtube.com/live/jMjSVF14j30"
+        st, sid, canon = self.router.identify(url)
+        self.assertEqual(st, "youtube")
+        self.assertEqual(sid, "jMjSVF14j30")
+        self.assertEqual(canon, "https://www.youtube.com/watch?v=jMjSVF14j30")
+
+    def test_identify_youtube_embed(self):
+        url = "https://www.youtube.com/embed/jMjSVF14j30"
+        st, sid, canon = self.router.identify(url)
+        self.assertEqual(st, "youtube")
+        self.assertEqual(sid, "jMjSVF14j30")
+        self.assertEqual(canon, "https://www.youtube.com/watch?v=jMjSVF14j30")
+
+    def test_identify_spoofed_youtube_hostnames(self):
+        # Domains containing youtube.com as substring or in path/query must not be matched as youtube
+        spoofs = [
+            "https://notyoutube.com/watch?v=123",
+            "https://youtube.com.attacker.org/watch?v=123",
+            "https://example.com/watch?v=123&domain=youtube.com",
+        ]
+        for sp in spoofs:
+            st, sid, canon = self.router.identify(sp)
+            self.assertEqual(st, "web", f"Failed spoof protection for {sp}")
+
     def test_identify_bilibili(self):
         url = "https://www.bilibili.com/video/BV1xx411c7mD?spm_id_from=333"
         st, sid, canon = self.router.identify(url)
@@ -65,14 +97,15 @@ class TestResolverRouter(unittest.TestCase):
         self.assertIsNone(sid)
         self.assertEqual(canon, url)
 
-    def test_route_weixin_vs_others(self):
+    def test_route_platforms(self):
+        from url_resolver.strategies.bilibili_wbi import BilibiliWbiStrategy
+        from url_resolver.strategies.youtube_oembed import YoutubeOembedStrategy
+
         wx_strat = self.router.route("https://weixin.qq.com/sph/AF123")
         self.assertIsInstance(wx_strat, WeixinPreviewStrategy)
 
         yt_strat = self.router.route("https://www.youtube.com/watch?v=123")
-        self.assertIsInstance(yt_strat, GenericStaticStrategy)
-
-        from url_resolver.strategies.bilibili_wbi import BilibiliWbiStrategy
+        self.assertIsInstance(yt_strat, YoutubeOembedStrategy)
 
         bili_strat = self.router.route("https://www.bilibili.com/video/BV123")
         self.assertIsInstance(bili_strat, BilibiliWbiStrategy)

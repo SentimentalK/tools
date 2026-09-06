@@ -189,6 +189,239 @@ class TestStrategies(unittest.TestCase):
         self.assertEqual(outcome.metadata.title, "Fallback Page Title")
         self.assertEqual(outcome.diagnostics.strategy, "generic_static")
 
+    def test_youtube_oembed_success(self):
+        from url_resolver.strategies.youtube_oembed import YoutubeOembedStrategy
+
+        oembed_json = """
+        {
+            "title": "Rick Astley - Never Gonna Give You Up",
+            "author_name": "Rick Astley",
+            "author_url": "https://www.youtube.com/@RickAstley",
+            "type": "video",
+            "thumbnail_url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"
+        }
+        """
+        api_res = FetchResult(
+            requested_url="https://www.youtube.com/oembed",
+            final_url="https://www.youtube.com/oembed",
+            http_status=200,
+            content_type="application/json",
+            headers={},
+            body=oembed_json,
+            latency_ms=120,
+        )
+        mock_fallback = MagicMock()
+        strategy = YoutubeOembedStrategy(
+            api_fetcher=MockWebFetcher(api_res),
+            fallback_strategy=mock_fallback,
+        )
+        outcome = strategy.resolve(
+            url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            source_type="youtube",
+            source_id="dQw4w9WgXcQ",
+            canonical_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        )
+
+        self.assertEqual(outcome.status, "resolved")
+        self.assertEqual(outcome.metadata.title, "Rick Astley - Never Gonna Give You Up")
+        self.assertEqual(outcome.metadata.creator, "Rick Astley")
+        self.assertEqual(outcome.metadata.thumbnail_url, "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg")
+        self.assertEqual(outcome.metadata.source_id, "dQw4w9WgXcQ")
+        self.assertEqual(outcome.metadata.source_url, "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        self.assertEqual(outcome.metadata.canonical_url, "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        self.assertEqual(outcome.diagnostics.strategy, "youtube_oembed")
+        mock_fallback.resolve.assert_not_called()
+
+    def test_youtube_oembed_whitespace_and_type_sanitization(self):
+        from url_resolver.strategies.youtube_oembed import YoutubeOembedStrategy
+
+        # title is empty whitespace, author has padding, numeric type
+        oembed_json = """
+        {
+            "title": "   ",
+            "author_name": "  Alice In Chains  ",
+            "thumbnail_url": "https://img.com/pic.jpg"
+        }
+        """
+        api_res = FetchResult(
+            requested_url="https://www.youtube.com/oembed",
+            final_url="https://www.youtube.com/oembed",
+            http_status=200,
+            content_type="application/json",
+            headers={},
+            body=oembed_json,
+            latency_ms=100,
+        )
+        # fallback also unavailable
+        fallback_res = FetchResult(
+            requested_url="https://www.youtube.com/watch?v=123",
+            final_url="https://www.youtube.com/watch?v=123",
+            http_status=412,
+            content_type="text/html",
+            headers={},
+            body="blocked",
+            latency_ms=100,
+            blocked=True,
+        )
+        strategy = YoutubeOembedStrategy(
+            api_fetcher=MockWebFetcher(api_res),
+            fallback_strategy=GenericStaticStrategy(fetcher=MockWebFetcher(fallback_res)),
+        )
+        outcome = strategy.resolve(
+            url="https://www.youtube.com/watch?v=123",
+            source_type="youtube",
+            source_id="123",
+        )
+
+        # Title was empty whitespace -> treated as None.
+        # But author and thumbnail were valid -> preserved partial metadata!
+        self.assertEqual(outcome.status, "resolved")
+        self.assertIsNone(outcome.metadata.title)
+        self.assertEqual(outcome.metadata.creator, "Alice In Chains")
+        self.assertEqual(outcome.metadata.thumbnail_url, "https://img.com/pic.jpg")
+
+    def test_youtube_oembed_failure_404_fallback_to_generic(self):
+        from url_resolver.strategies.youtube_oembed import YoutubeOembedStrategy
+
+        api_res = FetchResult(
+            requested_url="https://www.youtube.com/oembed",
+            final_url="https://www.youtube.com/oembed",
+            http_status=404,
+            content_type="text/plain",
+            headers={},
+            body="Not Found",
+            latency_ms=80,
+        )
+        fallback_html = "<html><head><meta property='og:title' content='Fallback Video' /></head></html>"
+        fallback_res = FetchResult(
+            requested_url="https://www.youtube.com/watch?v=123",
+            final_url="https://www.youtube.com/watch?v=123",
+            http_status=200,
+            content_type="text/html",
+            headers={},
+            body=fallback_html,
+            latency_ms=150,
+        )
+        strategy = YoutubeOembedStrategy(
+            api_fetcher=MockWebFetcher(api_res),
+            fallback_strategy=GenericStaticStrategy(fetcher=MockWebFetcher(fallback_res)),
+        )
+        outcome = strategy.resolve(
+            url="https://www.youtube.com/watch?v=123",
+            source_type="youtube",
+            source_id="123",
+        )
+
+        self.assertEqual(outcome.status, "resolved")
+        self.assertEqual(outcome.metadata.title, "Fallback Video")
+        self.assertEqual(outcome.metadata.source_id, "123")
+        self.assertEqual(outcome.diagnostics.strategy, "generic_static")
+
+    def test_youtube_oembed_failure_invalid_json_fallback(self):
+        from url_resolver.strategies.youtube_oembed import YoutubeOembedStrategy
+
+        api_res = FetchResult(
+            requested_url="https://www.youtube.com/oembed",
+            final_url="https://www.youtube.com/oembed",
+            http_status=200,
+            content_type="text/html",
+            headers={},
+            body="<html>Not json</html>",
+            latency_ms=90,
+        )
+        fallback_html = "<html><head><meta property='og:title' content='Recovered Title' /></head></html>"
+        fallback_res = FetchResult(
+            requested_url="https://www.youtube.com/watch?v=123",
+            final_url="https://www.youtube.com/watch?v=123",
+            http_status=200,
+            content_type="text/html",
+            headers={},
+            body=fallback_html,
+            latency_ms=110,
+        )
+        strategy = YoutubeOembedStrategy(
+            api_fetcher=MockWebFetcher(api_res),
+            fallback_strategy=GenericStaticStrategy(fetcher=MockWebFetcher(fallback_res)),
+        )
+        outcome = strategy.resolve(
+            url="https://www.youtube.com/watch?v=123",
+            source_type="youtube",
+            source_id="123",
+        )
+
+        self.assertEqual(outcome.status, "resolved")
+        self.assertEqual(outcome.metadata.title, "Recovered Title")
+        self.assertEqual(outcome.diagnostics.strategy, "generic_static")
+
+    def test_youtube_oembed_both_paths_fail(self):
+        from url_resolver.strategies.youtube_oembed import YoutubeOembedStrategy
+
+        api_res = FetchResult(
+            requested_url="https://www.youtube.com/oembed",
+            final_url="https://www.youtube.com/oembed",
+            http_status=404,
+            content_type="text/plain",
+            headers={},
+            body="Not Found",
+            latency_ms=50,
+        )
+        fallback_res = FetchResult(
+            requested_url="https://www.youtube.com/watch?v=123",
+            final_url="https://www.youtube.com/watch?v=123",
+            http_status=412,
+            content_type="text/html",
+            headers={},
+            body="Blocked",
+            latency_ms=60,
+            blocked=True,
+            block_reason="HTTP 412",
+        )
+        strategy = YoutubeOembedStrategy(
+            api_fetcher=MockWebFetcher(api_res),
+            fallback_strategy=GenericStaticStrategy(fetcher=MockWebFetcher(fallback_res)),
+        )
+        outcome = strategy.resolve(
+            url="https://www.youtube.com/watch?v=123",
+            source_type="youtube",
+            source_id="123",
+        )
+
+        self.assertEqual(outcome.status, "unavailable")
+        self.assertEqual(outcome.fields_resolved, [])
+        self.assertEqual(outcome.metadata.source_id, "123")
+
+    def test_youtube_oembed_budget_exhausted_skips_fallback(self):
+        from url_resolver.strategies.youtube_oembed import YoutubeOembedStrategy
+
+        api_res = FetchResult(
+            requested_url="https://www.youtube.com/oembed",
+            final_url="https://www.youtube.com/oembed",
+            http_status=500,
+            content_type="text/plain",
+            headers={},
+            body="Error",
+            latency_ms=50,
+        )
+        mock_fallback = MagicMock()
+        # Set total budget smaller than 0.5s so remaining budget is <= 0.5s
+        strategy = YoutubeOembedStrategy(
+            api_fetcher=MockWebFetcher(api_res),
+            fallback_strategy=mock_fallback,
+            total_budget_seconds=0.1,
+            oembed_timeout_seconds=0.1,
+        )
+        outcome = strategy.resolve(
+            url="https://www.youtube.com/watch?v=123",
+            source_type="youtube",
+            source_id="123",
+        )
+
+        self.assertEqual(outcome.status, "unavailable")
+        self.assertEqual(outcome.diagnostics.fetch_status, "timeout")
+        self.assertEqual(outcome.diagnostics.code, "TIMEOUT")
+        mock_fallback.resolve.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
+
