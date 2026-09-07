@@ -239,13 +239,6 @@ platform_metadata:
 ```bash
 # 本地启动
 export TOOLS_INTERNAL_TOKEN="your-token"
-.venv/bin/uvicorn src.service:app --host 0.0.0.0 --port 8000
-
-# Docker 构建 (轻量纯解析镜像，无 ASR 模型)
-docker build -t content-resolver:latest -f Dockerfile .
-
-# K3s 部署
-kubectl apply -f deploy/k8s-resolver.yaml
 ```
 
 ---

@@ -92,17 +92,6 @@ curl -X POST http://localhost:8000/v1/resolve \
   -d '{"schema_version": 1, "url": "https://weixin.qq.com/sph/AF17JEGHVd"}'
 ```
 
-### Running the Resolver in Docker / K3s
-
-Build OCI image:
-```bash
-docker build -t ghcr.io/sentimentalk/content-resolver:latest -f subtitle-extractor/Dockerfile subtitle-extractor/
-```
-
-Deploy to K3s:
-```bash
-kubectl apply -f subtitle-extractor/deploy/k8s-resolver.yaml
-```
 
 ---
 
